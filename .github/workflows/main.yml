@@ -288,11 +288,19 @@ jobs:
           </main>
 
           <footer>
-            Fato do Dia · Notícias e acontecimentos
-          </footer>
+  <p>Fato do Dia · Notícias e acontecimentos</p>
 
-          </body>
-          </html>
+  <p>
+    <a href="sobre.html">Sobre</a> |
+    <a href="contato.html">Contato</a> |
+    <a href="privacidade.html">Política de Privacidade</a>
+  </p>
+
+  <p>© 2026 Fato do Dia - Todos os direitos reservados.</p>
+</footer>
+
+</body>
+</html>
           """
 
           with open("index.html", "w", encoding="utf-8") as arquivo:
