@@ -1,0 +1,119 @@
+name: Atualizar notícias
+
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  noticias:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar site
+        uses: actions/checkout@v4
+
+      - name: Atualizar notícias
+        run: |
+          python - <<'PY'
+          import urllib.request
+          import xml.etree.ElementTree as ET
+          from html import escape
+          from datetime import datetime
+
+          feeds = [
+              "https://feeds.bbci.co.uk/portuguese/rss.xml",
+              "https://g1.globo.com/rss/g1/"
+          ]
+
+          noticias = []
+
+          for feed in feeds:
+              try:
+                  data = urllib.request.urlopen(feed, timeout=20).read()
+                  root = ET.fromstring(data)
+
+                  for item in root.findall(".//item")[:8]:
+                      title = item.findtext("title", "")
+                      link = item.findtext("link", "")
+                      date = item.findtext("pubDate", "")
+
+                      if title and link:
+                          noticias.append((title, link, date))
+              except Exception as e:
+                  print("Erro no feed:", e)
+
+          cards = ""
+
+          for title, link, date in noticias[:15]:
+              cards += f"""
+              <article class="card">
+                <div class="category">NOTÍCIA</div>
+                <h2>{escape(title)}</h2>
+                <p class="meta">{escape(date)}</p>
+                <p><a href="{escape(link)}" target="_blank">Ler a notícia na fonte →</a></p>
+              </article>
+              """
+
+          agora = datetime.utcnow().strftime("%d/%m/%Y")
+
+          html = f"""<!doctype html>
+          <html lang="pt-BR">
+          <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>Fato do Dia</title>
+          <style>
+          body{{margin:0;font-family:Arial,sans-serif;background:#f4f5f7;color:#18202a}}
+          header{{background:#111827;color:white;padding:28px 18px}}
+          .wrap{{max-width:900px;margin:auto}}
+          h1{{margin:0 0 6px;font-size:32px}}
+          nav{{background:white;padding:12px 18px}}
+          nav a{{margin-right:18px;color:#111827;text-decoration:none;font-weight:bold}}
+          main{{padding:24px 18px}}
+          .card{{background:white;padding:22px;margin-bottom:18px;border-radius:12px;box-shadow:0 2px 8px #00000012}}
+          .meta{{font-size:13px;color:#667085}}
+          .category{{font-weight:bold;font-size:12px}}
+          a{{color:#2563eb}}
+          footer{{padding:30px;text-align:center;color:#667085}}
+          </style>
+          </head>
+          <body>
+          <header>
+            <div class="wrap">
+              <h1>Fato do Dia</h1>
+              <div>Acontecimentos do Brasil e do mundo</div>
+            </div>
+          </header>
+
+          <nav>
+            <div class="wrap">
+              <a href=".">Início</a>
+              <a href=".">Brasil</a>
+              <a href=".">Mundo</a>
+            </div>
+          </nav>
+
+          <main class="wrap">
+            <h2>Principais acontecimentos</h2>
+            <p>Atualizado em {agora}</p>
+            {cards}
+          </main>
+
+          <footer>Fato do Dia</footer>
+          </body>
+          </html>"""
+
+          open("index.html", "w", encoding="utf-8").write(html)
+          PY
+
+      - name: Publicar alterações
+        run: |
+          git config user.name "Fato do Dia Bot"
+          git config user.email "actions@github.com"
+          git add index.html
+          git commit -m "Atualizar notícias" || exit 0
+          git push
