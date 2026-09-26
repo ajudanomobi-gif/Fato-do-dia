@@ -16,13 +16,13 @@ jobs:
       - name: Baixar site
         uses: actions/checkout@v4
 
-      - name: Atualizar notícias
+      - name: Buscar notícias e imagens
         run: |
           python - <<'PY'
           import urllib.request
           import xml.etree.ElementTree as ET
           from html import escape
-          from datetime import datetime
+          from datetime import datetime, timezone
 
           feeds = [
               "https://feeds.bbci.co.uk/portuguese/rss.xml",
@@ -31,61 +31,239 @@ jobs:
 
           noticias = []
 
+          namespaces = {
+              "media": "http://search.yahoo.com/mrss/",
+              "content": "http://purl.org/rss/1.0/modules/content/"
+          }
+
           for feed in feeds:
               try:
-                  data = urllib.request.urlopen(feed, timeout=20).read()
+                  req = urllib.request.Request(
+                      feed,
+                      headers={"User-Agent": "Mozilla/5.0"}
+                  )
+
+                  data = urllib.request.urlopen(req, timeout=20).read()
                   root = ET.fromstring(data)
 
-                  for item in root.findall(".//item")[:8]:
+                  for item in root.findall(".//item")[:10]:
                       title = item.findtext("title", "")
                       link = item.findtext("link", "")
                       date = item.findtext("pubDate", "")
 
+                      image = ""
+
+                      # Procura imagem em media:content
+                      media = item.find("media:content", namespaces)
+                      if media is not None:
+                          image = media.attrib.get("url", "")
+
+                      # Procura media:thumbnail
+                      if not image:
+                          thumb = item.find("media:thumbnail", namespaces)
+                          if thumb is not None:
+                              image = thumb.attrib.get("url", "")
+
+                      # Procura imagem em enclosure
+                      if not image:
+                          enclosure = item.find("enclosure")
+                          if enclosure is not None:
+                              image = enclosure.attrib.get("url", "")
+
                       if title and link:
-                          noticias.append((title, link, date))
+                          noticias.append({
+                              "title": title,
+                              "link": link,
+                              "date": date,
+                              "image": image
+                          })
+
               except Exception as e:
-                  print("Erro no feed:", e)
+                  print("Erro no feed:", feed, e)
+
+          # Remove notícias repetidas
+          unicas = []
+          titulos = set()
+
+          for noticia in noticias:
+              if noticia["title"] not in titulos:
+                  titulos.add(noticia["title"])
+                  unicas.append(noticia)
+
+          noticias = unicas[:15]
 
           cards = ""
 
-          for title, link, date in noticias[:15]:
+          for noticia in noticias:
+              title = escape(noticia["title"])
+              link = escape(noticia["link"], quote=True)
+              date = escape(noticia["date"])
+
+              image_html = ""
+
+              if noticia["image"]:
+                  image = escape(noticia["image"], quote=True)
+
+                  image_html = f"""
+                  <img
+                    src="{image}"
+                    alt="{title}"
+                    class="news-image"
+                    loading="lazy"
+                  >
+                  """
+
               cards += f"""
               <article class="card">
-                <div class="category">NOTÍCIA</div>
-                <h2>{escape(title)}</h2>
-                <p class="meta">{escape(date)}</p>
-                <p><a href="{escape(link)}" target="_blank">Ler a notícia na fonte →</a></p>
+                {image_html}
+
+                <div class="content">
+                  <div class="category">NOTÍCIA</div>
+
+                  <h2>{title}</h2>
+
+                  <p class="meta">{date}</p>
+
+                  <p>
+                    <a href="{link}" target="_blank" rel="noopener">
+                      Ler a notícia na fonte →
+                    </a>
+                  </p>
+                </div>
               </article>
               """
 
-          agora = datetime.utcnow().strftime("%d/%m/%Y")
+          if not cards:
+              cards = """
+              <article class="card">
+                <h2>Nenhuma notícia encontrada</h2>
+                <p>Tente atualizar novamente mais tarde.</p>
+              </article>
+              """
+
+          agora = datetime.now(timezone.utc).strftime("%d/%m/%Y")
 
           html = f"""<!doctype html>
           <html lang="pt-BR">
+
           <head>
           <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width,initial-scale=1">
+
+          <meta
+            name="viewport"
+            content="width=device-width,initial-scale=1"
+          >
+
+          <meta
+            name="description"
+            content="Principais acontecimentos do Brasil e do mundo."
+          >
+
           <title>Fato do Dia</title>
+
           <style>
-          body{{margin:0;font-family:Arial,sans-serif;background:#f4f5f7;color:#18202a}}
-          header{{background:#111827;color:white;padding:28px 18px}}
-          .wrap{{max-width:900px;margin:auto}}
-          h1{{margin:0 0 6px;font-size:32px}}
-          nav{{background:white;padding:12px 18px}}
-          nav a{{margin-right:18px;color:#111827;text-decoration:none;font-weight:bold}}
-          main{{padding:24px 18px}}
-          .card{{background:white;padding:22px;margin-bottom:18px;border-radius:12px;box-shadow:0 2px 8px #00000012}}
-          .meta{{font-size:13px;color:#667085}}
-          .category{{font-weight:bold;font-size:12px}}
-          a{{color:#2563eb}}
-          footer{{padding:30px;text-align:center;color:#667085}}
+
+          * {{
+            box-sizing: border-box;
+          }}
+
+          body {{
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f4f5f7;
+            color: #18202a;
+          }}
+
+          header {{
+            background: #111827;
+            color: white;
+            padding: 30px 18px;
+          }}
+
+          .wrap {{
+            max-width: 900px;
+            margin: auto;
+          }}
+
+          h1 {{
+            margin: 0 0 6px;
+            font-size: 32px;
+          }}
+
+          nav {{
+            background: white;
+            padding: 14px 18px;
+            border-bottom: 1px solid #ddd;
+          }}
+
+          nav a {{
+            margin-right: 18px;
+            color: #111827;
+            text-decoration: none;
+            font-weight: bold;
+          }}
+
+          main {{
+            padding: 25px 18px;
+          }}
+
+          .card {{
+            background: white;
+            margin-bottom: 22px;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px #00000012;
+          }}
+
+          .news-image {{
+            display: block;
+            width: 100%;
+            max-height: 420px;
+            object-fit: cover;
+          }}
+
+          .content {{
+            padding: 20px;
+          }}
+
+          .category {{
+            font-weight: bold;
+            font-size: 12px;
+            letter-spacing: .5px;
+            margin-bottom: 8px;
+          }}
+
+          h2 {{
+            margin: 5px 0 10px;
+            font-size: 22px;
+          }}
+
+          .meta {{
+            color: #667085;
+            font-size: 13px;
+          }}
+
+          a {{
+            color: #2563eb;
+          }}
+
+          footer {{
+            padding: 30px;
+            text-align: center;
+            color: #667085;
+          }}
+
           </style>
           </head>
+
           <body>
+
           <header>
             <div class="wrap">
               <h1>Fato do Dia</h1>
-              <div>Acontecimentos do Brasil e do mundo</div>
+              <div>
+                Acontecimentos do Brasil e do mundo
+              </div>
             </div>
           </header>
 
@@ -94,26 +272,43 @@ jobs:
               <a href=".">Início</a>
               <a href=".">Brasil</a>
               <a href=".">Mundo</a>
+              <a href=".">Tecnologia</a>
+              <a href=".">Esportes</a>
             </div>
           </nav>
 
           <main class="wrap">
+
             <h2>Principais acontecimentos</h2>
+
             <p>Atualizado em {agora}</p>
+
             {cards}
+
           </main>
 
-          <footer>Fato do Dia</footer>
-          </body>
-          </html>"""
+          <footer>
+            Fato do Dia · Notícias e acontecimentos
+          </footer>
 
-          open("index.html", "w", encoding="utf-8").write(html)
+          </body>
+          </html>
+          """
+
+          with open("index.html", "w", encoding="utf-8") as arquivo:
+              arquivo.write(html)
+
+          print(f"{len(noticias)} notícias encontradas.")
+
           PY
 
       - name: Publicar alterações
         run: |
           git config user.name "Fato do Dia Bot"
           git config user.email "actions@github.com"
+
           git add index.html
-          git commit -m "Atualizar notícias" || exit 0
+
+          git commit -m "Atualizar notícias e imagens" || exit 0
+
           git push
